@@ -1,0 +1,258 @@
+---
+title: "Grupo Hotusa"
+author: |
+  | Noelia Sánchez Martínez
+  | noeliasanchezmrt@gmail.com
+date: "Febrero 2024"
+output:
+  pdf_document:
+    latex_engine: xelatex
+    extra_dependencies: subfig
+    fig_caption: yes
+    number_sections: yes
+    highlight: pygments
+    df_print: kable
+  html_document:
+    fig_caption: yes
+    number_sections: yes
+    df_print: paged
+subtitle: Data Analysis Test
+fontsize: 16pt
+link-citations: yes
+urlcolor: blue
+linkcolor: blue
+citecolor: blue
+toccolor: blue
+header-includes:
+- \usepackage{caption}
+- \usepackage{titling}
+- \posttitle{\end{center} \vspace{0.5cm} }
+- \preauthor{\begin{center} \texttt }
+- \postauthor{\end{center}}
+- \predate{\begin{center} \normalsize \it }
+- \postdate{\end{center} \vspace{0.5cm} }
+- \usepackage{fancyhdr}
+- \usepackage{lipsum}
+- \pagestyle{fancy}
+editor_options: 
+  chunk_output_type: console
+---
+
+\fontfamily{cmr}
+\fontsize{11}{20}
+\fontseries{b}
+\selectfont
+
+```{=tex}
+\def\figurename{Figura}
+\def\tablename{Tabla}
+```
+
+```{r setup, include=FALSE,purl = FALSE}
+knitr::knit_hooks$set(purl = knitr::hook_purl)
+# OPCIONES PARA LOS CHUNKS
+knitr::opts_chunk$set(
+                      warning = FALSE, message = FALSE, include=TRUE, echo = FALSE,results='hide',
+                      fig.path="Figuras/Figura_",fig.show = 'hold', fig.align = 'center', fig.lp='',
+                      out.width='50%',
+                      highlight=TRUE, strip.white = TRUE, 
+                      tidy = TRUE, 
+                      tidy.opts = list(blank=FALSE, width.cutoff=100), 
+                      comment = '', 
+                      size='scriptsize', 
+                      prompt = TRUE,
+                      purl = FALSE
+                      )
+
+options(knitr.table.format = "latex")
+library(formatR) 
+library(ggplot2); library(ggrepel); library(colorspace); 
+library(hrbrthemes); library(cowplot); library(dplyr); library(tidyr)
+library(kableExtra); library(knitr); 
+library(quantreg)
+
+palette("default")
+palette(c("black", "blue", "red", "#A2CD5A","#9A32CD"))
+lighten <-  lighten(palette(), 0.9)
+par(cex.main=1.8, cex.lab=1.8,cex.axis=1.8)
+
+theme_set( theme_classic())
+theme_update(
+  legend.position = "top",
+  legend.justification = "right",
+  legend.text = element_text(size = 9),
+  legend.box.spacing = unit(0, "pt"),
+  panel.grid.major.y = element_line(), 
+  panel.grid.major.x = element_line(), 
+  legend.title = element_blank(), 
+  legend.direction = "horizontal"
+)
+
+```
+
+```{r, Lectura y limpieza de la base de datos}
+hotusa_analysis <-
+  read.csv("hotusa_analysis.csv") %>%
+  mutate(
+    date_gen = as.Date(date_gen),
+    date_checkin = as.Date(date_checkin),
+    nights = as.integer(nights),
+    guests = as.integer(guests),
+    agency_id = as.factor(agency_id),
+    status = recode(as.factor(status), 
+                    Cancelled="Cancelada", Confirmed="Confirmada") 
+  ) 
+
+head(hotusa_analysis)
+summary(hotusa_analysis)
+```
+En la Figura \ref{F1} se representa el número de reservas confirmadas y canceladas para cada fecha de \textit{check-in}. La evolución día a día del número de reservas se acompaña de una curva de tendencia general. En términos globales, las reservas confirmadas presentan mucha menos variabilidad de una día a otro y, además, son más constantes a lo largo del año. Por el contrario, la cancelación de una reserva parece un fenómeno más aleatorio y, además, ha ganado popularidad durante la primera mitad del año $2021$. La cancelación de reservas es mucho más difícil de predecir que la confirmación. La tabla se recoge el número de reservas canceladas y confirmadas para las diez agencias con mayor volumen total de reservas. 
+
+```{r Reservas confirmadas vs. canceladas, fig.height=4, fig.width=12, fig.ncol = 1, out.width='95%',  fig.cap = "\\label{F1}Reservas confirmadas y canceladas por fecha de \\textit{check-in}."}
+
+df1 <- hotusa_analysis %>%
+  group_by(date_checkin, status) %>%
+  summarise(no_rows = length(status))
+
+ggplot(df1,
+       aes(x = date_checkin,y = no_rows, group = status, color = status)) +
+  geom_line(size = 0.5) +
+  geom_smooth(method="loess") +
+  labs( x = "Fecha de check-in",
+    y = "Número de reservas") +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+```
+```{r top10, results='show'}
+top_agencies <-  hotusa_analysis %>%
+  group_by(agency_id) %>%
+  summarise(no_rows = length(res_id))  %>%
+  top_n(10, no_rows) 
+
+df2 <- hotusa_analysis %>%
+  filter(agency_id %in% pull(top_agencies, agency_id)) %>%
+  group_by(agency_id, status) %>%
+  summarise(no_rows = length(res_id)) %>% 
+  pivot_wider(names_from = status, values_from = no_rows) %>% 
+  t %>% as.data.frame() %>% 
+  janitor::row_to_names(1) 
+
+rownames(df2) <- c("R. Canceladas", "R. Confirmadas")
+
+
+knitr::kable(df2, caption = "Número de reservas confirmadas y cancelaciones.", 
+             col.names = gsub("Agencia_", "A. ", names(df2))) %>%
+ kableExtra::kable_styling(
+                full_width = F,
+                latex_options = "scale_down",
+                font_size = 8) %>%
+  row_spec(0,bold=TRUE) %>%
+  column_spec(1, bold=TRUE, width = "5cm") 
+```
+
+```{r Evolución de precios y revenue por fecha de check-in,fig.height=4, fig.width=12, fig.ncol = 1, out.width='95%', fig.cap = "\\label{F2}Evolución de precios y \\textit{revenue} por fecha de \\textit{check-in}."}
+
+df3 <- hotusa_analysis %>%
+  filter(status == 'Confirmada') %>%
+  group_by(date_checkin) %>%
+  summarise(
+    min_price = min(mean_price_per_night),
+    mean_price = mean(mean_price_per_night),
+    max_price = max(mean_price_per_night),
+    revenue = sum(mean_price_per_night * nights)/100
+  )  %>%
+pivot_longer(cols = c(-1),  names_to = "line", values_to = "value") %>% 
+  mutate(line = recode(as.factor(line), 
+                    min_price="Precio Mínimo", 
+                    mean_price="Precio Medio", 
+                   max_price ="Precio Máximo",
+                   revenue ="Revenue/100"))
+
+head(df3)
+
+ggplot(df3, aes(x = date_checkin, y=value, group =line, color=line)) +
+  geom_line(size = 0.5) +
+  geom_smooth(method="loess") +
+  labs(x = "Fecha de Check-in", y = "Precio (Mínimo, Medio, Máximo)") +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ylim(c(-10,300))
+
+```
+
+La Figura \ref{F2} muestra la evolución de los los precios mínimo, medio y máximo para cada fecha de \textit{check-in}. Se incluye también la evolución de los ingresos totales generados por día de \textit{check-in} divididos por cien. Se entiende que una fecha mal vendida es aquella en la cual las estancias son principalmente de corta duración, o aquella en la cual hubo un número bajo de \textit{check-in}. Ello implica que en las fechas mal vendidas la facturación baja mientras el precio medio de los hoteles sube o permanece constante. La gráfica sugiere que a finales de agosto y principios de septiembre son fechas mal vendidas. 
+
+En la Figura \ref{F3} se representa el porcentaje de cancelaciones y confirmaciones que ocurren en cada intervalo. Casi la mitad de las cancelaciones (un $42\%$) se concentra en los tres días previos a la fecha de \textit{check-in}. En general, la probabilidad de que una reserva sea cancelada aumenta a media que se acerca la fecha de \textit{check-in}. Por el contrario, las confirmaciones de reserva ocurren mayoritariamente con más semanas de antelación. 
+
+```{r Ratio de cancelación por intervalo de antelación, fig.height=4, fig.width=6, fig.ncol = 1, out.width='60%',  fig.cap = "\\label{F3}Ratio de cancelación por intervalo de antelación."}
+intervals <- c(0, 3, 7, 30, 90, 120, 10^4 )
+interval_names <-
+  c("[0,3)", "[3,7)", "[7,30)", "[30,90)", "[90,120]", "[120, Inf)")
+
+ratios <- hotusa_analysis %>%
+  mutate(ant = as.numeric(date_checkin - date_gen, units = "days")) %>%
+  mutate(ant_int = cut(
+    ant,
+    breaks = intervals,
+    labels = interval_names,
+    right = FALSE
+  ))  %>% 
+  count(status, ant_int) %>%
+  group_by(status) %>%        
+  mutate(prop = prop.table(n)*100)
+
+ggplot(ratios, aes(x = ant_int, y = prop, fill=status)) +
+  geom_bar(position="dodge", stat="identity") +
+  labs(x = "Antelación (días)", y = "Ratio de Cancelación (%)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  geom_text(aes(x = ant_int, y = prop, 
+                label = paste(round(prop, 2), "%"), group = status, color=status), 
+            position = position_dodge(width = .9), vjust = -0.5, size=2) + 
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) 
+```
+En la Figura \ref{F4} se muestra la distribución de los precios de venta por noche para las reservas canceladas y confirmadas. No existen evidencias de que el motivo subyacente a la cancelación sea un elevado precio por noche. En efecto, una reserva más cara no parece más susceptible de ser cancelada.  
+
+```{r Distribución de Precios de Reservas Canceladas y Confirmadas,fig.asp=0.75, fig.ncol = 1, fig.cap = "\\label{F4}Distribución de precios de reservas canceladas y confirmadas."}
+mu <- plyr::ddply(hotusa_analysis, "status", summarise, grp.mean=mean(mean_price_per_night))
+
+ggplot() +
+  geom_density(data = hotusa_analysis, aes(x = mean_price_per_night, color = status), alpha = 0.5, fill = NA) +
+  labs(x = "Precio de Venta por Noche", y = "Densidad") +
+  geom_vline(data=mu, aes(xintercept=grp.mean, color=status),
+             linetype="dashed") +
+  xlim(c(min(quantile(hotusa_analysis$mean_price_per_night, 0.02)), 
+         max(quantile(hotusa_analysis$mean_price_per_night, 0.98))))
+```
+Los gráficos de la Figura \ref{F5} están enfocados a estudiar, de modo exploratorio, la relación entre el número de noches de estancia y el precio medio por noche. El primer gráfico no sugiere ninguna relación clara entre el número de noches y el precio medio por noche. Lo que sí sugiere es que la mayor parte de las reservas son de menos de diez días y que las estancias de corta duración son las que presentan mayor variabilidad en el precio por noche. 
+
+En el segundo gráfico se muestra el impacto de las noches estancia sobre cada cuantil de la distribución de los precios de cada noche en el hotel. Por ejemplo, por cada noche más de estancia se espera que la mediana del precio por noche aumente $2.50$ euros y, además, se espera que el tercer cuantil del precio por noche sea de $3$ euros más. En general, el precio por noche esperado aumenta a medida que lo hace el número de noches. Además, a mayor número de noches, mayor es la variabilidad de los precios, contrariamente a lo que se intuye en el primer gráfico. 
+
+
+```{r Relación entre Número de Noches y Precio Medio de Reserva, fig.ncol = 2, out.width='45%', fig.cap = "\\label{F5}Relación entre número de noches y precio medio de reserva."}
+correlation <- cor(hotusa_analysis$nights, hotusa_analysis$mean_price_per_night/hotusa_analysis$guests); correlation
+
+ggplot(hotusa_analysis, aes(x = nights, y = mean_price_per_night)) +
+  geom_point(color= "#27408b", size = 2) + 
+  labs(x = "Número de Noches", y = "Precio Medio por Noche", 
+       title = "Relación entre Número de Noches y Precio Medio de Reserva") +
+  xlim(0, 31) + ylim(-100, 1000) 
+
+ t <- rq(data=hotusa_analysis,  tau= 1:9/10,
+     formula =mean_price_per_night ~nights) %>%
+  broom::tidy(se.type = "nid") 
+   
+t %>%
+  filter(term == "nights") %>%
+  ggplot(aes(x=tau,y=estimate))+
+  geom_point(color="#27408b", size = 2)+ 
+  geom_line(color="#27408b", size = 1)+ 
+  #facet_wrap(~term, scales="free", ncol=2) + 
+  geom_ribbon(aes(ymin=estimate - qnorm(0.95) * std.error,
+                  ymax=estimate + qnorm(0.95) * std.error),alpha=0.25, fill="#27408b") + 
+  labs(x = "Cuantil", y = "Aumento del Precio/Noche")
+```
+
+
